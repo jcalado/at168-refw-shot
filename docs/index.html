@@ -1,0 +1,1989 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AT168Shot</title>
+<meta name="description" content="Screenshot capture tool for the AnyTone 168 radio display, in the browser via Web Serial.">
+<link rel="icon" href="icon.png">
+<style>
+  /* Colours follow Dear ImGui's StyleColorsDark() so this matches the desktop app. */
+  :root {
+    --bg: #0f0f0f;
+    --text: #ffffff;
+    --text-dim: #a0a0a0;
+    --text-disabled: #8c8c8c;
+    --border: rgba(110, 110, 128, 0.5);
+    --frame: rgba(41, 74, 122, 0.54);
+    --frame-hover: rgba(66, 150, 250, 0.40);
+    --button: rgba(66, 150, 250, 0.40);
+    --button-hover: #2470d0;
+    --button-active: #1a5fb8;
+    --primary: #2470d0;
+    --primary-hover: #1f63ba;
+    --bar: rgba(66, 150, 250, 0.12);
+    --card: rgba(255, 255, 255, 0.04);
+    --card-selected: rgba(66, 150, 250, 0.25);
+    --check: #4296fa;
+    --ok: rgb(0, 204, 0);
+    --error: rgb(230, 90, 90);
+    --danger-text: #ff9a9a;
+    --danger-bg: rgba(230, 90, 90, 0.18);
+    --danger-hover: rgba(230, 90, 90, 0.45);
+    --popup: rgba(20, 20, 20, 0.94);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.35 ui-monospace, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+    letter-spacing: 0.02em;
+  }
+  [hidden] { display: none !important; }
+
+  .app { display: flex; flex-direction: column; min-height: 100%; }
+
+  button, select, input[type=text] {
+    font: inherit; color: var(--text); border: 0; border-radius: 0;
+    padding: 3px 8px; min-height: 21px;
+  }
+  button { background: var(--button); cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--button-hover); }
+  button:active:not(:disabled) { background: var(--button-active); }
+  button:disabled, select:disabled { opacity: 0.6; cursor: default; }
+  button:focus-visible, select:focus-visible, input:focus-visible, .card:focus-visible {
+    outline: 1px solid var(--check); outline-offset: 1px;
+  }
+
+  /* ImGui combo: frame plus a square arrow button on the right. */
+  select {
+    appearance: none; -webkit-appearance: none;
+    background-color: var(--frame);
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='8'%3E%3Cpath d='M0 0h10L5 8z' fill='white'/%3E%3C/svg%3E"),
+      linear-gradient(var(--button), var(--button));
+    background-repeat: no-repeat;
+    background-position: right 5px center, right;
+    background-size: 10px 8px, 21px 100%;
+    padding: 3px 26px 3px 4px; cursor: pointer;
+  }
+  select:hover:not(:disabled) { background-color: var(--frame-hover); }
+  select option { background: #1a1a1a; color: var(--text); }
+  input[type=text] { background: var(--frame); padding: 4px 6px; }
+  input[type=text]:hover { background-color: var(--frame-hover); }
+
+  .check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .check input { appearance: none; -webkit-appearance: none; margin: 0;
+    width: 19px; height: 19px; background: var(--frame); cursor: pointer; position: relative; }
+  .check input:hover { background: var(--frame-hover); }
+  .check input:checked::after {
+    content: ""; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px;
+    border: solid var(--check); border-width: 0 3px 3px 0; transform: rotate(45deg);
+  }
+  .dim { color: var(--text-dim); }
+  .spacer { flex: 1 1 0; }
+
+  /* ImGui SliderInt: a frame with a square grab, value shown beside it. */
+  .slider { display: inline-flex; align-items: center; gap: 6px; }
+  input[type=range] {
+    appearance: none; -webkit-appearance: none; margin: 0;
+    width: 110px; height: 21px; background: var(--frame); cursor: pointer;
+  }
+  input[type=range]:hover { background: var(--frame-hover); }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 17px; background: var(--check); border: 0;
+  }
+  input[type=range]::-moz-range-thumb { width: 12px; height: 17px; background: var(--check); border: 0; border-radius: 0; }
+  input[type=range]:focus-visible { outline: 1px solid var(--check); outline-offset: 1px; }
+  .slider output { min-width: 5ch; color: var(--text-dim); }
+  .save-group { display: inline-flex; align-items: center; gap: 8px; }
+
+  /* === Top toolbar === */
+  .toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+  }
+  #capture { font-weight: 700; background: var(--primary); padding: 0 18px; height: 36px; }
+  #capture:hover:not(:disabled) { background: var(--primary-hover); }
+  #rotation { width: 140px; }
+  .progress { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); }
+  .progress .track { display: block; width: 120px; height: 6px; background: var(--frame); }
+  .progress .fill { display: block; height: 6px; width: 0; background: var(--check); }
+
+  .banner { border: 1px solid var(--error); color: var(--error); padding: 6px 8px; margin: 8px 12px 0; }
+  .banner a { color: var(--check); }
+
+  /* === Main: gallery + preview panel === */
+  .main { flex: 1 1 auto; display: flex; flex-wrap: wrap; }
+  .gallery-col { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; }
+  /* Shown while more than one screenshot is selected. */
+  .selbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin: 12px 12px 0; padding: 6px 8px; background: var(--card-selected);
+  }
+  .selbar .del { color: var(--danger-text); background: var(--danger-bg); }
+  .selbar .del:hover:not(:disabled) { background: var(--danger-hover); }
+  /* --thumb is the thumbnail width, set from the size slider. */
+  .gallery {
+    --thumb: 128px;
+    padding: 12px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--thumb) + 22px), 1fr));
+    gap: 14px; align-content: start;
+  }
+  .empty { grid-column: 1 / -1; color: var(--text-disabled); padding: 40px 0; text-align: center; }
+
+  .card {
+    display: flex; flex-direction: column; gap: 4px; padding: 6px;
+    background: var(--card); cursor: pointer; min-width: 0;
+    user-select: none;  /* Shift-click selects cards, not text */
+  }
+  .card:hover { background: rgba(255, 255, 255, 0.08); }
+  .card.picked { background: var(--card-selected); }
+  .card.selected { background: var(--card-selected); outline: 1px solid var(--check); }
+  .card.dragging { opacity: 0.4; }
+  /* Where a reordered card will land. */
+  .card.drop-before { box-shadow: -8px 0 0 -5px var(--check); }
+  .card.drop-after { box-shadow: 8px 0 0 -5px var(--check); }
+  .card canvas { display: block; width: var(--thumb); height: calc(var(--thumb) * 1.25);
+    align-self: center; image-rendering: pixelated; }
+  .card .meta { display: flex; justify-content: space-between; gap: 4px; min-width: 0; }
+  .card .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .meta > :last-child { flex: 0 0 auto; white-space: nowrap; }
+  .card .unsaved { color: var(--check); }
+  .card .actions { display: flex; gap: 4px; }
+  .card .actions button { flex: 1 1 0; font-size: 12px; padding: 2px; }
+  .card .actions .del { flex: 0 0 24px; color: var(--danger-text); background: var(--danger-bg); }
+  .card .actions .del:hover:not(:disabled) { background: var(--danger-hover); }
+
+  .panel {
+    flex: 1 1 300px; max-width: 420px; border-left: 1px solid var(--border);
+    padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+  .panel-head { align-self: stretch; display: flex; align-items: center; gap: 8px; }
+  .panel .label { flex: 1 1 0; min-width: 0; color: var(--text-disabled);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #zoom { width: 80px; }
+  #preview { display: block; width: 100%; max-width: 384px; height: auto;
+    aspect-ratio: 128 / 160; image-rendering: pixelated; }
+  /* A fixed zoom sizes the preview exactly and lets the panel grow to fit it;
+     it still shrinks rather than overflow a narrow window. */
+  .panel.zoomed { flex-basis: calc(var(--preview-w) + 24px); max-width: none; }
+  .panel.zoomed #preview { width: var(--preview-w); max-width: 100%; }
+  .preview-empty {
+    width: 100%; max-width: 288px; aspect-ratio: 128 / 160; border: 1px dashed var(--border);
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    color: var(--text-disabled); padding: 16px;
+  }
+  .rename { align-self: stretch; display: flex; flex-direction: column; gap: 4px; }
+  .panel-actions { align-self: stretch; display: flex; gap: 6px; }
+  .panel-actions button { flex: 1 1 0; padding: 6px; }
+
+  /* === Bottom status bar === */
+  .statusbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+    padding: 4px 12px; border-top: 1px solid var(--border); background: var(--bar);
+  }
+  #port { width: 190px; }
+  #baud { width: 100px; }
+  .status { color: var(--text-dim); }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--error); }
+  .statusbar a { color: var(--text-disabled); }
+  .more { padding: 0 8px; font-size: 16px; line-height: 1; min-height: 21px; }
+  .more.open { background: var(--button-hover); }
+
+  /* Overflow menu: an ImGui-style popup opened above the "more" button. */
+  .menu {
+    position: fixed; inset: auto; margin: 0;
+    background: var(--popup); color: var(--text); border: 1px solid var(--border);
+    padding: 0 0 8px; width: 240px; font: inherit;
+  }
+  .menu-title { background: rgba(66, 150, 250, 0.31); padding: 2px 8px; margin-bottom: 8px; }
+  .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px; }
+  .menu-row.check { justify-content: flex-start; }
+  .menu-row select { width: 140px; }
+  .menu-hint { margin: 6px 8px 0; color: var(--text-disabled); font-size: 12px; }
+
+  /* Right-click menu on a gallery card, opened at the pointer. */
+  .menu.ctx { width: 180px; padding: 4px 0; }
+  .menu-item {
+    display: flex; justify-content: space-between; gap: 12px; width: 100%;
+    background: none; text-align: left; padding: 4px 10px;
+  }
+  .menu-item:hover:not(:disabled), .menu-item:focus-visible { background: var(--button-hover); outline: 0; }
+  .menu-item .key { color: var(--text-disabled); }
+  .menu-item.danger { color: var(--danger-text); }
+  .menu-item.danger:hover:not(:disabled), .menu-item.danger:focus-visible { background: var(--danger-hover); color: var(--text); }
+  .menu-sep { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+
+  .menu-sep.wide { margin: 8px 0; }
+
+  /* Undo notice, floating just above the status bar. */
+  .toast {
+    position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 10;
+    display: flex; align-items: center; gap: 16px; max-width: calc(100vw - 32px);
+    background: var(--popup); border: 1px solid var(--border); padding: 8px 8px 8px 14px;
+    line-height: 1.5;
+  }
+  .toast button { padding: 4px 14px; font-weight: 700; }
+
+  /* Sequence export dialog: options on the left, live preview on the right. */
+  dialog {
+    background: var(--popup); color: var(--text); border: 1px solid var(--border);
+    padding: 0; max-width: calc(100vw - 32px); font: inherit; line-height: 1.5;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  dialog .title { background: rgba(66, 150, 250, 0.31); padding: 6px 16px; font-weight: 700; }
+  .export-body { display: flex; flex-wrap: wrap; gap: 20px; padding: 18px 16px 20px; }
+  .export-opts { flex: 1 1 260px; display: flex; flex-direction: column; gap: 10px; }
+  .export-opts .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .export-opts .row > :last-child { width: 150px; }
+  .export-opts .row.check { justify-content: flex-start; }
+  .export-opts .row.check > :last-child { width: auto; }
+  .export-opts input[type=range] { width: 110px; }
+  .seg { display: flex; }
+  .seg button { flex: 1 1 0; padding: 4px 6px; }
+  .seg button[aria-pressed=true] { background: var(--primary); }
+  .export-preview {
+    flex: 1 1 360px; min-height: 300px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px;
+  }
+  .export-preview canvas {
+    max-width: 100%; max-height: 420px; image-rendering: pixelated;
+    background: repeating-conic-gradient(#2a2a2a 0 25%, #1e1e1e 0 50%) 0 0 / 16px 16px;
+  }
+  dialog .buttons { padding: 0 16px 16px; display: flex; justify-content: flex-end; gap: 10px; }
+  dialog .buttons button { min-width: 96px; padding: 6px 14px; }
+  dialog .buttons .primary { background: var(--primary); }
+
+  @media (max-width: 700px) {
+    .toolbar, .statusbar, .gallery { padding-left: 16px; padding-right: 16px; }
+    .panel { max-width: none; border-left: 0; border-top: 1px solid var(--border); padding: 12px 16px; }
+    .panel.zoomed { flex-basis: 100%; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div id="unsupported" class="banner" hidden>
+    This browser has no Web Serial support. Use a recent Chrome, Edge or Opera on desktop,
+    or the <a href="https://github.com/jcalado/radshot/releases">desktop app</a>.
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button id="capture" disabled>Take Screenshot</button>
+    <span class="dim hint">or press Space</span>
+    <span id="progress" class="progress" hidden>
+      <span class="track"><span class="fill" id="progress-fill"></span></span>
+      <span id="progress-text">Capturing... 0%</span>
+    </span>
+    <span class="spacer"></span>
+    <label class="slider">Thumbs
+      <input type="range" id="thumb-size" min="96" max="256" step="16" value="128">
+      <output id="thumb-size-value" for="thumb-size">128px</output>
+    </label>
+    <span class="save-group">
+      <button id="save-all" disabled>Save All</button>
+      <label class="check" title="Save All downloads one .zip; untick to download each PNG separately"><input type="checkbox" id="save-zip">.zip</label>
+    </span>
+    <button id="export" disabled title="Contact sheet, strip or animated GIF of the selected screenshots (or all)">Export&#8230;</button>
+    <button id="clear-all" disabled>Clear All</button>
+  </div>
+
+  <!-- Gallery + preview -->
+  <div class="main">
+    <div class="gallery-col">
+      <div class="selbar" id="selbar" hidden>
+        <span id="selbar-count"></span>
+        <button id="sel-save">Save</button>
+        <button id="sel-copy" title="Copies them as one contact sheet image">Copy as sheet</button>
+        <button id="sel-export">Export&#8230;</button>
+        <button id="sel-delete" class="del">Delete</button>
+        <span class="spacer"></span>
+        <span class="dim hint">Ctrl/Shift-click to adjust &#183; drag to reorder &#183; Esc to clear</span>
+      </div>
+      <div class="gallery" id="gallery" aria-label="Screenshots"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="label" id="preview-label">PREVIEW</span>
+        <select id="zoom" aria-label="Preview size">
+          <option value="0">Fit</option>
+          <option value="1">1&#215;</option>
+          <option value="2">2&#215;</option>
+          <option value="3">3&#215;</option>
+          <option value="4">4&#215;</option>
+          <option value="5">5&#215;</option>
+          <option value="6">6&#215;</option>
+        </select>
+      </div>
+      <div class="preview-empty" id="preview-empty">Take a screenshot to see preview</div>
+      <canvas id="preview" width="128" height="160" hidden></canvas>
+      <div id="selected" class="rename" hidden>
+        <label for="rename">Name</label>
+        <input type="text" id="rename" spellcheck="false">
+      </div>
+      <div id="selected-actions" class="panel-actions" hidden>
+        <button id="save-btn">Save</button>
+        <button id="copy-btn">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status bar: connection -->
+  <div class="statusbar">
+    <span id="status" class="status" role="status">Disconnected</span>
+    <select id="port" aria-label="Serial port"></select>
+    <button id="refresh" title="Pick a USB serial device to grant access to">Refresh</button>
+    <select id="baud" aria-label="Baud rate"></select>
+    <button id="connect" disabled>Connect</button>
+    <span class="spacer"></span>
+    <span id="count" class="dim">0 screenshots</span>
+    <a href="https://github.com/jcalado/radshot">source</a>
+    <a href="https://ko-fi.com/jcalado">ko-fi</a>
+    <button id="more" class="more" popovertarget="more-menu" aria-label="More options" title="More options">&#8943;</button>
+  </div>
+</div>
+
+<div id="more-menu" class="menu" popover>
+  <div class="menu-title">Orientation</div>
+  <label class="menu-row">Rotation
+    <select id="rotation">
+      <option value="0">Rotate 90 CW</option>
+      <option value="1">Rotate 90 CCW</option>
+    </select>
+  </label>
+  <label class="check menu-row"><input type="checkbox" id="mirror">Mirror</label>
+  <p class="menu-hint">Adjust until the capture matches the radio display. Remembered between visits.</p>
+  <hr class="menu-sep wide">
+  <div class="menu-title">Export</div>
+  <label class="menu-row">PNG scale
+    <select id="export-scale">
+      <option value="1">1&#215; (128&#215;160)</option>
+      <option value="2">2&#215; (256&#215;320)</option>
+      <option value="3">3&#215; (384&#215;480)</option>
+      <option value="4">4&#215; (512&#215;640)</option>
+      <option value="6">6&#215; (768&#215;960)</option>
+    </select>
+  </label>
+  <p class="menu-hint">Used by Save, Copy and Save All.</p>
+  <hr class="menu-sep wide">
+  <div class="menu-title">Connection</div>
+  <label class="check menu-row"><input type="checkbox" id="auto-connect">Reconnect to last radio</label>
+  <p class="menu-hint">On page load and when it is plugged back in.</p>
+</div>
+
+<div id="card-menu" class="menu ctx" popover role="menu" aria-label="Screenshot actions">
+  <button class="menu-item" role="menuitem" data-action="save">Save</button>
+  <button class="menu-item" role="menuitem" data-action="rename">Rename<span class="key">F2</span></button>
+  <button class="menu-item" role="menuitem" data-action="copy">Copy</button>
+  <button class="menu-item" role="menuitem" data-action="export">Export sequence&#8230;</button>
+  <hr class="menu-sep">
+  <button class="menu-item danger" role="menuitem" data-action="delete">Delete<span class="key">Del</span></button>
+</div>
+
+<dialog id="export-dlg" aria-labelledby="export-title">
+  <div class="title" id="export-title">Export</div>
+  <div class="export-body">
+    <div class="export-opts">
+      <div class="seg" role="group" aria-label="Format">
+        <button data-format="sheet">Contact sheet</button>
+        <button data-format="strip">Strip</button>
+        <button data-format="gif">Animated GIF</button>
+      </div>
+      <label class="row" data-for="sheet">Columns
+        <span class="slider"><input type="range" id="seq-columns" min="1" max="10"><output id="seq-columns-value"></output></span>
+      </label>
+      <label class="row" data-for="strip">Direction
+        <select id="seq-direction">
+          <option value="h">Horizontal</option>
+          <option value="v">Vertical</option>
+        </select>
+      </label>
+      <label class="row" data-for="sheet strip">Gap
+        <span class="slider"><input type="range" id="seq-gap" min="0" max="48" step="4"><output id="seq-gap-value"></output></span>
+      </label>
+      <label class="row" data-for="sheet strip">Background
+        <select id="seq-bg">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+          <option value="none">Transparent</option>
+        </select>
+      </label>
+      <label class="row check" data-for="sheet strip"><span class="check"><input type="checkbox" id="seq-labels">Names under each</span></label>
+      <label class="row" data-for="gif">Frame time
+        <span class="slider"><input type="range" id="seq-delay" min="200" max="4000" step="100"><output id="seq-delay-value"></output></span>
+      </label>
+      <label class="row" data-for="sheet strip gif">Scale
+        <select id="seq-scale">
+          <option value="1">1&#215;</option>
+          <option value="2">2&#215;</option>
+          <option value="3">3&#215;</option>
+          <option value="4">4&#215;</option>
+          <option value="6">6&#215;</option>
+        </select>
+      </label>
+      <span class="dim" id="seq-size"></span>
+    </div>
+    <div class="export-preview">
+      <canvas id="seq-preview" width="1" height="1"></canvas>
+    </div>
+  </div>
+  <div class="buttons">
+    <button id="seq-copy">Copy</button>
+    <button id="seq-save" class="primary">Save</button>
+    <button id="seq-cancel">Close</button>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden>
+  <span id="toast-text"></span>
+  <button id="toast-undo">Undo</button>
+</div>
+
+<script>
+"use strict";
+
+// =============================================================================
+// Constants (mirrors at168shot.cpp)
+// =============================================================================
+
+// The radio answers the "SCR" command with one raw 16-bit RGB565 (little
+// endian) framebuffer dump. The scanlines come out transposed relative to what
+// the display shows: RAW_WIDTH pixels per row, RAW_HEIGHT rows. Rotating (and
+// optionally mirroring) that recovers the 128x160 portrait image.
+const RAW_WIDTH = 160;
+const RAW_HEIGHT = 128;
+const DISPLAY_WIDTH = 128;
+const DISPLAY_HEIGHT = 160;
+const FRAME_SIZE = RAW_WIDTH * RAW_HEIGHT * 2;  // 40960 bytes
+const BAUD_RATES = [921600, 115200, 230400, 460800, 4000000];
+const SCREENSHOT_CMD = new Uint8Array([0x53, 0x43, 0x52]);  // "SCR"
+const EXPORT_SCALES = [1, 2, 3, 4, 6];
+const DEFAULT_EXPORT_SCALE = 3;
+// Give up when the radio has sent nothing for this long.
+const CAPTURE_QUIET_TIMEOUT_MS = 5000;
+const DRAIN_QUIET_MS = 50;
+const DRAIN_MAX_MS = 500;
+
+const ROT_CW_90 = 0, ROT_CCW_90 = 1;
+const DEFAULT_ROTATION = ROT_CW_90;
+const DEFAULT_MIRROR = true;  // rotate + mirror == transpose
+
+const SETTINGS_KEY = "at168shot";
+
+const THUMB_MIN = 96, THUMB_MAX = 256, DEFAULT_THUMB = 128;
+const ZOOM_MAX = 6, DEFAULT_ZOOM = 0;  // 0 = fit the panel
+
+// Captures are kept in IndexedDB as raw frames, so a reload or a crash does
+// not lose them; they are re-decoded with the current orientation on load.
+const DB_NAME = "at168shot";
+const DB_STORE = "screenshots";
+
+const UNDO_MS = 6000;
+
+// =============================================================================
+// State
+// =============================================================================
+
+const state = {
+  ports: [],
+  port: null,
+  reader: null,
+  readLoopDone: null,
+  connected: false,
+  capturing: false,
+  // Every received chunk updates this; the drain uses it to tell when the line
+  // has gone quiet.
+  lastData: 0,
+  captureBuf: new Uint8Array(FRAME_SIZE),
+  captureBytes: 0,
+  captureLastData: 0,
+  captureTimer: 0,
+  lineWasBusy: false,
+  screenshots: [],
+  selected: -1,
+  nextId: 1,
+  rotation: DEFAULT_ROTATION,
+  mirror: DEFAULT_MIRROR,
+  baudIndex: 0,
+  thumbSize: DEFAULT_THUMB,
+  zoom: DEFAULT_ZOOM,
+  exportScale: DEFAULT_EXPORT_SCALE,
+  saveAsZip: true,
+  autoConnect: true,
+  // USB "vid:pid" of the last port connected to, and whether it should be
+  // reopened (a manual Disconnect clears that; unplugging does not).
+  lastPort: "",
+  reconnect: false,
+  db: null,
+  undo: null,
+  // Multi-selection: every picked screenshot. `selected` is the one shown in
+  // the preview, `anchor` where a Shift-click range starts.
+  picked: new Set(),
+  anchor: -1,
+  dragging: null,
+  // Last used sequence export options.
+  seq: { format: "sheet", columns: 4, direction: "h", gap: 8, bg: "dark", labels: false, delay: 800, scale: 2 },
+};
+
+// Marks a drag as one of our own cards, so the gallery can reorder on drop.
+const DRAG_TYPE = "application/x-at168shot";
+// Beyond this browsers refuse to allocate the canvas.
+const MAX_CANVAS_SIDE = 16384, MAX_CANVAS_AREA = 64e6;
+
+const $ = (id) => document.getElementById(id);
+const now = () => performance.now();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// =============================================================================
+// Settings persistence
+// =============================================================================
+
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    if (Number.isInteger(s.baudIndex) && s.baudIndex >= 0 && s.baudIndex < BAUD_RATES.length) state.baudIndex = s.baudIndex;
+    if (s.rotation === ROT_CW_90 || s.rotation === ROT_CCW_90) state.rotation = s.rotation;
+    if (typeof s.mirror === "boolean") state.mirror = s.mirror;
+    if (Number.isInteger(s.thumbSize) && s.thumbSize >= THUMB_MIN && s.thumbSize <= THUMB_MAX) state.thumbSize = s.thumbSize;
+    if (Number.isInteger(s.zoom) && s.zoom >= 0 && s.zoom <= ZOOM_MAX) state.zoom = s.zoom;
+    if (EXPORT_SCALES.includes(s.exportScale)) state.exportScale = s.exportScale;
+    if (typeof s.saveAsZip === "boolean") state.saveAsZip = s.saveAsZip;
+    if (s.seq && typeof s.seq === "object") {
+      const q = s.seq, d = state.seq;
+      if (["sheet", "strip", "gif"].includes(q.format)) d.format = q.format;
+      if (Number.isInteger(q.columns) && q.columns >= 1 && q.columns <= 10) d.columns = q.columns;
+      if (q.direction === "h" || q.direction === "v") d.direction = q.direction;
+      if (Number.isInteger(q.gap) && q.gap >= 0 && q.gap <= 48) d.gap = q.gap;
+      if (["dark", "light", "none"].includes(q.bg)) d.bg = q.bg;
+      if (typeof q.labels === "boolean") d.labels = q.labels;
+      if (Number.isInteger(q.delay) && q.delay >= 200 && q.delay <= 4000) d.delay = q.delay;
+      if (EXPORT_SCALES.includes(q.scale)) d.scale = q.scale;
+    }
+    if (typeof s.autoConnect === "boolean") state.autoConnect = s.autoConnect;
+    if (typeof s.lastPort === "string") state.lastPort = s.lastPort;
+    if (typeof s.reconnect === "boolean") state.reconnect = s.reconnect;
+  } catch (e) { /* storage blocked or corrupt: keep defaults */ }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      baudIndex: state.baudIndex,
+      rotation: state.rotation,
+      mirror: state.mirror,
+      thumbSize: state.thumbSize,
+      zoom: state.zoom,
+      exportScale: state.exportScale,
+      saveAsZip: state.saveAsZip,
+      seq: state.seq,
+      autoConnect: state.autoConnect,
+      lastPort: state.lastPort,
+      reconnect: state.reconnect,
+    }));
+  } catch (e) { /* ignore */ }
+}
+
+// =============================================================================
+// Image processing
+// =============================================================================
+
+// The frame arrives as 128 consecutive runs of 160 pixels; each run is one
+// column of the display, so the raw image is the transpose of what the radio
+// shows. Maps a display pixel back to its index in the raw frame.
+function rawPixelIndex(x, y, rotation, mirror) {
+  const mx = mirror ? (DISPLAY_WIDTH - 1 - x) : x;
+  let sx, sy;
+  if (rotation === ROT_CW_90) {
+    sx = y;
+    sy = RAW_HEIGHT - 1 - mx;
+  } else {
+    sx = RAW_WIDTH - 1 - y;
+    sy = mx;
+  }
+  return sy * RAW_WIDTH + sx;
+}
+
+function processFrame(raw, rotation, mirror) {
+  const img = new ImageData(DISPLAY_WIDTH, DISPLAY_HEIGHT);
+  const d = img.data;
+  for (let y = 0; y < DISPLAY_HEIGHT; y++) {
+    for (let x = 0; x < DISPLAY_WIDTH; x++) {
+      // Decode one RGB565 little endian pixel
+      const src = rawPixelIndex(x, y, rotation, mirror) * 2;
+      const pixel = raw[src] | (raw[src + 1] << 8);
+      const o = (y * DISPLAY_WIDTH + x) * 4;
+      d[o]     = (((pixel >> 11) & 0x1F) * 255 / 31) | 0;
+      d[o + 1] = (((pixel >> 5) & 0x3F) * 255 / 63) | 0;
+      d[o + 2] = ((pixel & 0x1F) * 255 / 31) | 0;
+      d[o + 3] = 0xFF;
+    }
+  }
+  return img;
+}
+
+// Re-decode a screenshot from its raw frame, e.g. after the orientation changed
+function rebuildScreenshot(ss) {
+  ss.image = processFrame(ss.raw, state.rotation, state.mirror);
+  ss.canvas.getContext("2d").putImageData(ss.image, 0, 0);
+}
+
+function rebuildAll() {
+  state.screenshots.forEach(rebuildScreenshot);
+  renderPreview();
+}
+
+// The screenshot at the export scale, upscaled with nearest neighbour so
+// pixels stay sharp.
+function exportCanvas(ss) {
+  const c = document.createElement("canvas");
+  c.width = DISPLAY_WIDTH * state.exportScale;
+  c.height = DISPLAY_HEIGHT * state.exportScale;
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(ss.canvas, 0, 0, c.width, c.height);
+  return c;
+}
+
+const canvasBlob = (c, type = "image/png") => new Promise((resolve) => c.toBlob(resolve, type));
+const screenshotBlob = (ss) => canvasBlob(exportCanvas(ss));
+
+// Names are free text, so make them safe as file names.
+const safeName = (name) => name.replace(/[\\/:*?"<>|]/g, "_");
+
+function fileStamp() {
+  const d = new Date();
+  const pad = (v) => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
+// =============================================================================
+// Sequence export: contact sheet, strip, animated GIF
+// =============================================================================
+
+function sequenceLayout(n, q) {
+  const tw = DISPLAY_WIDTH * q.scale, th = DISPLAY_HEIGHT * q.scale;
+  const cols = q.format === "strip" ? (q.direction === "h" ? n : 1) : Math.min(q.columns, n);
+  const rows = Math.ceil(n / cols);
+  const font = Math.max(11, Math.round(5 * q.scale));
+  const labelH = q.labels ? Math.round(font * 1.8) : 0;
+  const w = cols * tw + (cols + 1) * q.gap;
+  const h = rows * (th + labelH) + (rows + 1) * q.gap;
+  return { cols, rows, tw, th, font, labelH, w, h,
+           tooBig: w > MAX_CANVAS_SIDE || h > MAX_CANVAS_SIDE || w * h > MAX_CANVAS_AREA };
+}
+
+function fitText(ctx, text, width) {
+  if (ctx.measureText(text).width <= width) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + "…").width > width) t = t.slice(0, -1);
+  return t + "…";
+}
+
+// Contact sheet or strip, in gallery order.
+function renderSheet(list, q) {
+  const L = sequenceLayout(list.length, q);
+  const c = document.createElement("canvas");
+  c.width = L.w;
+  c.height = L.h;
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  if (q.bg !== "none") {
+    ctx.fillStyle = q.bg === "light" ? "#ffffff" : "#0f0f0f";
+    ctx.fillRect(0, 0, L.w, L.h);
+  }
+  ctx.font = `${L.font}px ui-monospace, Consolas, "DejaVu Sans Mono", monospace`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = q.bg === "light" ? "#222222" : q.bg === "dark" ? "#dddddd" : "#888888";
+  list.forEach((ss, i) => {
+    const x = q.gap + (i % L.cols) * (L.tw + q.gap);
+    const y = q.gap + Math.floor(i / L.cols) * (L.th + L.labelH + q.gap);
+    ctx.drawImage(ss.canvas, x, y, L.tw, L.th);
+    if (q.labels) ctx.fillText(fitText(ctx, ss.name, L.tw), x + L.tw / 2, y + L.th + L.labelH / 2);
+  });
+  return c;
+}
+
+// GIF image data: LZW codes packed LSB first, cut into 255-byte sub-blocks.
+// Follows the reference encoder's code-size timing (bump before adding the
+// code that no longer fits; clear and restart when the table is full).
+function lzwSubBlocks(indices, minCodeSize) {
+  const clearCode = 1 << minCodeSize, eoiCode = clearCode + 1;
+  let codeSize = minCodeSize + 1, nextCode = eoiCode + 1;
+  let table = new Map();
+  let buf = new Uint8Array(1 << 16), len = 0, cur = 0, bits = 0;
+  const emit = (code) => {
+    cur |= code << bits;
+    bits += codeSize;
+    while (bits >= 8) {
+      if (len === buf.length) { const nb = new Uint8Array(buf.length * 2); nb.set(buf); buf = nb; }
+      buf[len++] = cur & 0xFF;
+      cur >>>= 8;
+      bits -= 8;
+    }
+  };
+
+  emit(clearCode);
+  let prefix = indices[0];
+  for (let i = 1; i < indices.length; i++) {
+    const k = indices[i];
+    const key = (prefix << 8) | k;
+    const code = table.get(key);
+    if (code !== undefined) { prefix = code; continue; }
+    emit(prefix);
+    if (nextCode === 4096) {
+      emit(clearCode);
+      table = new Map();
+      nextCode = eoiCode + 1;
+      codeSize = minCodeSize + 1;
+    } else {
+      if (nextCode >= (1 << codeSize)) codeSize++;
+      table.set(key, nextCode++);
+    }
+    prefix = k;
+  }
+  emit(prefix);
+  emit(eoiCode);
+  if (bits > 0) {
+    if (len === buf.length) { const nb = new Uint8Array(buf.length + 1); nb.set(buf); buf = nb; }
+    buf[len++] = cur & 0xFF;
+  }
+
+  const out = new Uint8Array(len + Math.ceil(len / 255) + 1);
+  let o = 0;
+  for (let i = 0; i < len; i += 255) {
+    const n = Math.min(255, len - i);
+    out[o++] = n;
+    out.set(buf.subarray(i, i + n), o);
+    o += n;
+  }
+  out[o] = 0;  // block terminator
+  return out;
+}
+
+// Animated GIF, one frame per screenshot, looping forever. The radio's colours
+// usually fit a 256 entry palette exactly; if not, the most used 256 are kept
+// and the rest mapped to the nearest of those.
+function encodeGif(list, scale, delayMs) {
+  const w = DISPLAY_WIDTH, h = DISPLAY_HEIGHT, W = w * scale, H = h * scale;
+
+  const counts = new Map();
+  for (const ss of list) {
+    const d = ss.image.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const c = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+      counts.set(c, (counts.get(c) || 0) + 1);
+    }
+  }
+  let colors = [...counts.keys()];
+  if (colors.length > 256) colors = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 256).map((e) => e[0]);
+  const index = new Map(colors.map((c, i) => [c, i]));
+  const lookup = (c) => {
+    let i = index.get(c);
+    if (i !== undefined) return i;
+    const r = c >> 16, g = (c >> 8) & 255, b = c & 255;
+    let best = 0, bestD = Infinity;
+    for (let k = 0; k < colors.length; k++) {
+      const p = colors[k];
+      const dr = r - (p >> 16), dg = g - ((p >> 8) & 255), db = b - (p & 255);
+      const dist = dr * dr + dg * dg + db * db;
+      if (dist < bestD) { bestD = dist; best = k; }
+    }
+    index.set(c, best);
+    return best;
+  };
+  const palette = new Uint8Array(768);
+  colors.forEach((c, i) => { palette[i * 3] = c >> 16; palette[i * 3 + 1] = (c >> 8) & 255; palette[i * 3 + 2] = c & 255; });
+
+  const u16 = (v) => [v & 255, (v >> 8) & 255];
+  const delay = Math.round(delayMs / 10);  // GIF counts in hundredths
+  const parts = [
+    // Header and logical screen: global 256 colour table follows.
+    new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, ...u16(W), ...u16(H), 0xF7, 0, 0]),
+    palette,
+    // NETSCAPE2.0 extension: loop forever.
+    new Uint8Array([0x21, 0xFF, 0x0B, ...Array.from("NETSCAPE2.0", (ch) => ch.charCodeAt(0)), 0x03, 0x01, 0, 0, 0]),
+  ];
+  const idx = new Uint8Array(W * H);
+  for (const ss of list) {
+    const d = ss.image.data;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4;
+        const k = lookup((d[o] << 16) | (d[o + 1] << 8) | d[o + 2]);
+        for (let sy = 0; sy < scale; sy++) {
+          const row = (y * scale + sy) * W + x * scale;
+          idx.fill(k, row, row + scale);
+        }
+      }
+    }
+    parts.push(
+      // Graphic control (frame delay), then a full-size image descriptor.
+      new Uint8Array([0x21, 0xF9, 0x04, 0x04, ...u16(delay), 0, 0,
+                      0x2C, 0, 0, 0, 0, ...u16(W), ...u16(H), 0x00, 8]),
+      lzwSubBlocks(idx, 8),
+    );
+  }
+  parts.push(new Uint8Array([0x3B]));
+  return new Blob(parts, { type: "image/gif" });
+}
+
+// =============================================================================
+// Persistence (IndexedDB)
+// =============================================================================
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE, { keyPath: "id" });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbRequest(mode, fn) {
+  if (!state.db) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const tx = state.db.transaction(DB_STORE, mode);
+    const req = fn(tx.objectStore(DB_STORE));
+    tx.oncomplete = () => resolve(req.result);
+    tx.onerror = () => reject(tx.error);
+  }).catch((e) => setStatus(`Could not store screenshots: ${e.message}`, "err"));
+}
+
+const dbPut = (ss) => dbRequest("readwrite", (s) =>
+  s.put({ id: ss.id, name: ss.name, date: ss.date, saved: ss.saved, raw: ss.raw,
+          order: state.screenshots.indexOf(ss) }));
+const dbDelete = (ss) => dbRequest("readwrite", (s) => s.delete(ss.id));
+
+// Rewrites every record's position after the gallery order changed.
+function persistOrder() {
+  state.screenshots.forEach(dbPut);
+}
+
+function makeScreenshot(id, name, date, raw, saved) {
+  const canvas = document.createElement("canvas");
+  canvas.width = DISPLAY_WIDTH;
+  canvas.height = DISPLAY_HEIGHT;
+  const ss = { id, name, date, raw, canvas, image: null, saved };
+  rebuildScreenshot(ss);
+  return ss;
+}
+
+async function loadScreenshots() {
+  try {
+    state.db = await openDb();
+  } catch (e) {
+    return;  // private mode or storage blocked: captures just won't survive a reload
+  }
+  const rows = (await dbRequest("readonly", (s) => s.getAll())) || [];
+  // Gallery order, as last arranged; records from before reordering existed
+  // have no order and fall back to capture order.
+  rows.sort((a, b) => (a.order ?? a.id) - (b.order ?? b.id) || a.id - b.id);
+  for (const r of rows) {
+    if (!(r.raw instanceof Uint8Array) || r.raw.length !== FRAME_SIZE) continue;
+    state.screenshots.push(makeScreenshot(r.id, r.name, r.date, r.raw, !!r.saved));
+    state.nextId = Math.max(state.nextId, r.id + 1);
+  }
+}
+
+// =============================================================================
+// Zip (stored, no compression: PNGs are already compressed)
+// =============================================================================
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+// files: [{ name, data: Uint8Array, date: Date }]
+function makeZip(files) {
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let offset = 0, centralSize = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const crc = crc32(f.data);
+    const d = f.date;
+    const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);         // version needed
+    local.setUint16(6, 0x0800, true);     // UTF-8 names
+    local.setUint16(8, 0, true);          // stored
+    local.setUint16(10, time, true);
+    local.setUint16(12, date, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, f.data.length, true);
+    local.setUint32(22, f.data.length, true);
+    local.setUint16(26, name.length, true);
+    local.setUint16(28, 0, true);
+    parts.push(local, name, f.data);
+
+    const cen = new DataView(new ArrayBuffer(46));
+    cen.setUint32(0, 0x02014b50, true);
+    cen.setUint16(4, 20, true);           // version made by
+    cen.setUint16(6, 20, true);           // version needed
+    cen.setUint16(8, 0x0800, true);
+    cen.setUint16(10, 0, true);
+    cen.setUint16(12, time, true);
+    cen.setUint16(14, date, true);
+    cen.setUint32(16, crc, true);
+    cen.setUint32(20, f.data.length, true);
+    cen.setUint32(24, f.data.length, true);
+    cen.setUint16(28, name.length, true);
+    cen.setUint32(42, offset, true);      // everything between stays zero
+    central.push(cen, name);
+
+    offset += 30 + name.length + f.data.length;
+    centralSize += 46 + name.length;
+  }
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, centralSize, true);
+  end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end], { type: "application/zip" });
+}
+
+// =============================================================================
+// Serial port
+// =============================================================================
+
+function portLabel(port, i) {
+  const info = port.getInfo();
+  if (info.usbVendorId !== undefined) {
+    const hex = (n) => n.toString(16).padStart(4, "0");
+    return `USB ${hex(info.usbVendorId)}:${hex(info.usbProductId)}`;
+  }
+  return `Port ${i + 1}`;
+}
+
+async function enumeratePorts(select) {
+  if (!("serial" in navigator)) return;
+  state.ports = await navigator.serial.getPorts();
+  const sel = $("port");
+  sel.replaceChildren(new Option("Select...", "-1"));
+  state.ports.forEach((p, i) => sel.add(new Option(portLabel(p, i), String(i))));
+  const idx = select ? state.ports.indexOf(select) : (state.ports.length === 1 ? 0 : -1);
+  sel.value = String(idx);
+  updateUI();
+}
+
+// The browser only lists ports the user has granted, so Refresh asks for one.
+async function requestPort() {
+  try {
+    const port = await navigator.serial.requestPort();
+    await enumeratePorts(port);
+  } catch (e) {
+    // NotFoundError: the user dismissed the chooser
+    if (e.name !== "NotFoundError") setStatus(`Port request failed: ${e.message}`, "err");
+  }
+}
+
+async function serialConnect() {
+  const idx = Number($("port").value);
+  const port = state.ports[idx];
+  if (!port) return;
+  const baud = BAUD_RATES[state.baudIndex];
+
+  try {
+    await port.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: "none",
+                      flowControl: "none", bufferSize: 65536 });
+  } catch (e) {
+    setStatus(`Failed to open port: ${e.message}`, "err");
+    return;
+  }
+  try {
+    await port.setSignals({ dataTerminalReady: true, requestToSend: true });
+  } catch (e) { /* not every adapter supports this */ }
+
+  state.port = port;
+  state.connected = true;
+  state.readLoopDone = readLoop(port);
+
+  // A previous session may have left the radio mid-transfer, so start from a
+  // quiet line rather than inheriting its leftovers.
+  await serialDrainInput();
+
+  state.lastPort = portKey(port);
+  state.reconnect = true;
+  saveSettings();
+
+  setStatus(`Connected to ${portLabel(port, idx)} at ${baud} baud`, "ok");
+  updateUI();
+}
+
+// USB vendor:product id, the only stable way to recognise a port again.
+function portKey(port) {
+  const info = port.getInfo();
+  return info.usbVendorId === undefined ? "" : `${info.usbVendorId}:${info.usbProductId}`;
+}
+
+// Reopen the radio used last time, if it is plugged in and the user did not
+// disconnect from it on purpose.
+async function autoConnect() {
+  if (!state.autoConnect || !state.reconnect || !state.lastPort || state.connected || state.port) return;
+  const idx = state.ports.findIndex((p) => portKey(p) === state.lastPort);
+  if (idx < 0) return;
+  $("port").value = String(idx);
+  updateUI();
+  setStatus("Reconnecting...");
+  await serialConnect();
+}
+
+async function serialDisconnect(message = "Disconnected") {
+  if (!state.port) return;
+  const port = state.port;
+  state.connected = false;
+  stopCapture();
+  try { if (state.reader) await state.reader.cancel(); } catch (e) { /* ignore */ }
+  try { await state.readLoopDone; } catch (e) { /* ignore */ }
+  try { await port.close(); } catch (e) { /* ignore */ }
+  state.port = null;
+  state.reader = null;
+  setStatus(message, message === "Disconnected" ? "" : "err");
+  updateUI();
+}
+
+// Single reader for the life of the connection. Outside a capture, everything
+// that arrives is stale and gets dropped; during one it fills the frame.
+async function readLoop(port) {
+  while (state.connected && port.readable) {
+    state.reader = port.readable.getReader();
+    try {
+      for (;;) {
+        const { value, done } = await state.reader.read();
+        if (done) break;
+        if (value && value.length) onData(value);
+      }
+    } catch (e) {
+      // Non-fatal errors (framing, buffer overrun) leave readable usable;
+      // a device that went away does not.
+      if (e.name === "NetworkError" || !port.readable) {
+        state.reader.releaseLock();
+        state.reader = null;
+        if (state.connected) serialDisconnect("Device lost - reconnect the radio");
+        return;
+      }
+    } finally {
+      if (state.reader) state.reader.releaseLock();
+    }
+  }
+}
+
+function onData(chunk) {
+  state.lastData = now();
+  if (!state.capturing) return;
+
+  // Copy only what is still missing; any tail past the frame is discarded.
+  const remaining = FRAME_SIZE - state.captureBytes;
+  const n = Math.min(remaining, chunk.length);
+  state.captureBuf.set(chunk.subarray(0, n), state.captureBytes);
+  state.captureBytes += n;
+  state.captureLastData = state.lastData;
+
+  showProgress(Math.floor(state.captureBytes * 100 / FRAME_SIZE));
+  if (state.captureBytes >= FRAME_SIZE) finishCapture();
+}
+
+// Waits for the radio to stop talking, until the line has been quiet for
+// quiet_ms. A capture aborted part way leaves the tail of the old frame in
+// flight. Bounded by max_ms. Returns true if the line actually went quiet.
+async function serialDrainInput(quietMs = DRAIN_QUIET_MS, maxMs = DRAIN_MAX_MS) {
+  if (!state.connected) return true;
+  const start = now();
+  for (;;) {
+    const t = now();
+    if (t - Math.max(start, state.lastData) >= quietMs) return true;
+    if (t - start >= maxMs) return false;
+    await sleep(2);
+  }
+}
+
+// =============================================================================
+// Capture
+// =============================================================================
+
+async function startCapture() {
+  if (!state.connected || state.capturing || $("capture").disabled) return;
+  // Disable the button while draining; capturing stays false so the drain
+  // keeps discarding what arrives.
+  $("capture").disabled = true;
+  showProgress(0);
+
+  // The sequence is drain -> SCR -> read -> drain, so the command always goes
+  // out on a line with nothing stale left on it.
+  state.lineWasBusy = !(await serialDrainInput());
+  if (!state.connected) return;
+
+  const writer = state.port.writable.getWriter();
+  try {
+    await writer.write(SCREENSHOT_CMD);
+  } catch (e) {
+    setStatus(`Failed to send command: ${e.message}`, "err");
+    hideProgress();
+    updateUI();
+    return;
+  } finally {
+    writer.releaseLock();
+  }
+
+  state.capturing = true;
+  state.captureBytes = 0;
+  state.captureLastData = now();
+  state.captureBuf.fill(0);
+  clearInterval(state.captureTimer);
+  state.captureTimer = setInterval(checkCaptureTimeout, 100);
+  updateUI();
+}
+
+function stopCapture() {
+  state.capturing = false;
+  clearInterval(state.captureTimer);
+  state.captureTimer = 0;
+  hideProgress();
+}
+
+function checkCaptureTimeout() {
+  if (!state.capturing) return;
+  if (now() - state.captureLastData < CAPTURE_QUIET_TIMEOUT_MS) return;
+
+  const baud = BAUD_RATES[state.baudIndex];
+  if (state.captureBytes === 0) {
+    // Nothing at all came back: wrong baud rate and firmware without the
+    // screenshot command look identical from here.
+    setStatus(`No response at ${baud} baud - check the baud rate and that the radio runs screenshot-enabled firmware`, "err");
+  } else if (state.lineWasBusy) {
+    // No framing in the protocol, so anything the radio was already sending
+    // is indistinguishable from the start of the frame.
+    setStatus(`Timeout: ${state.captureBytes}/${FRAME_SIZE} bytes - radio was still sending when the request went out, so the reply may be interleaved`, "err");
+  } else {
+    setStatus(`Timeout: ${state.captureBytes}/${FRAME_SIZE} bytes`, "err");
+  }
+  stopCapture();
+  updateUI();
+  // A partial frame leaves the radio mid-transfer; let the leftover pass so
+  // the next attempt is not decoding the tail of this one.
+  serialDrainInput();
+}
+
+function finishCapture() {
+  stopCapture();
+
+  const id = state.nextId++;
+  const ss = makeScreenshot(id, `screenshot_${String(id).padStart(3, "0")}`,
+                            Date.now(), state.captureBuf.slice(), false);
+  state.screenshots.push(ss);
+  dbPut(ss);
+  renderGallery();
+  select(state.screenshots.length - 1);
+  setStatus(`Captured ${ss.name}`, "ok");
+  updateUI();
+  ss.card.scrollIntoView({ block: "nearest" });
+
+  // Let any trailing bytes pass so the next capture starts clean.
+  serialDrainInput();
+}
+
+// =============================================================================
+// File operations
+// =============================================================================
+
+function download(blob, filename) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function markSaved(ss) {
+  if (ss.saved) return;
+  ss.saved = true;
+  renderCardMeta(ss);
+  dbPut(ss);
+}
+
+async function saveScreenshot(ss) {
+  download(await screenshotBlob(ss), `${ss.name}.png`);
+  markSaved(ss);
+  updateUI();
+  setStatus(`Saved ${ss.name}.png`, "ok");
+}
+
+// By default one zip rather than a burst of downloads, which browsers throttle
+// and ask permission for; the zip toggle beside Save All switches to the latter.
+async function saveMany(shots) {
+  if (!shots.length) return;
+  if (shots.length === 1) { saveScreenshot(shots[0]); return; }
+  $("save-all").disabled = true;
+
+  // Unique names, so nothing in the zip (or the downloads folder) collides.
+  const used = new Map();
+  const fileName = (ss) => {
+    const base = safeName(ss.name);
+    const n = (used.get(base) || 0) + 1;
+    used.set(base, n);
+    return n === 1 ? `${base}.png` : `${base} (${n}).png`;
+  };
+
+  if (!state.saveAsZip) {
+    for (const ss of shots) {
+      download(await screenshotBlob(ss), fileName(ss));
+      markSaved(ss);
+      await sleep(150);  // spaced out so the browser doesn't drop any
+    }
+    updateUI();
+    setStatus(`Saved ${shots.length} screenshot${shots.length === 1 ? "" : "s"}`, "ok");
+    return;
+  }
+
+  setStatus(`Zipping ${shots.length} screenshots...`);
+  const files = [];
+  for (const ss of shots) {
+    const data = new Uint8Array(await (await screenshotBlob(ss)).arrayBuffer());
+    files.push({ name: fileName(ss), data, date: new Date(ss.date) });
+  }
+
+  const zipName = `at168shot_${fileStamp()}.zip`;
+  download(makeZip(files), zipName);
+
+  shots.forEach(markSaved);
+  updateUI();
+  setStatus(`Saved ${shots.length} screenshots to ${zipName}`, "ok");
+}
+
+const saveAll = () => saveMany(state.screenshots.slice());
+
+async function copyBlob(blobPromise, what) {
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise })]);
+    setStatus(`Copied ${what} to clipboard`, "ok");
+  } catch (e) {
+    setStatus(`Failed to copy: ${e.message}`, "err");
+  }
+}
+
+const copyToClipboard = (ss) => copyBlob(screenshotBlob(ss), ss.name);
+
+// The clipboard holds one image, so several are copied as one contact sheet,
+// laid out with the last used sheet options.
+function copyMany(list) {
+  if (list.length === 1) { copyToClipboard(list[0]); return; }
+  const q = { ...state.seq, format: state.seq.format === "strip" ? "strip" : "sheet" };
+  if (sequenceLayout(list.length, q).tooBig) {
+    setStatus("Too large to copy as one image - lower the scale in Export", "err");
+    return;
+  }
+  copyBlob(canvasBlob(renderSheet(list, q)), `${list.length} screenshots as a ${q.format === "strip" ? "strip" : "contact sheet"}`);
+}
+
+// Deletes take effect at once and can be undone from the notice for a few
+// seconds, which is quicker than confirming every one up front.
+function removeScreenshots(list, message) {
+  if (!list.length) return;
+  const selectedSs = state.screenshots[state.selected];
+  const removed = list
+    .map((ss) => ({ ss, index: state.screenshots.indexOf(ss) }))
+    .filter((r) => r.index >= 0)
+    .sort((a, b) => a.index - b.index);
+  state.screenshots = state.screenshots.filter((s) => !list.includes(s));
+  removed.forEach((r) => dbDelete(r.ss));
+
+  let sel = state.screenshots.indexOf(selectedSs);
+  if (sel < 0) sel = Math.min(removed[0].index, state.screenshots.length - 1);
+  renderGallery();
+  select(sel);
+  updateUI();
+  showUndo(message, removed);
+}
+
+function deleteScreenshot(ss) {
+  removeScreenshots([ss], `Deleted ${ss.name}`);
+}
+
+function deleteMany(list) {
+  if (list.length === 1) deleteScreenshot(list[0]);
+  else removeScreenshots(list, `Deleted ${list.length} screenshots`);
+}
+
+function clearAll() {
+  const n = state.screenshots.length;
+  removeScreenshots(state.screenshots.slice(), `Cleared ${n} screenshot${n === 1 ? "" : "s"}`);
+}
+
+function showUndo(message, removed) {
+  clearTimeout(state.undo && state.undo.timer);
+  state.undo = { removed, timer: setTimeout(hideUndo, UNDO_MS) };
+  $("toast-text").textContent = message;
+  $("toast").hidden = false;
+}
+
+function hideUndo() {
+  if (state.undo) clearTimeout(state.undo.timer);
+  state.undo = null;
+  $("toast").hidden = true;
+}
+
+function undoRemove() {
+  if (!state.undo) return;
+  const { removed } = state.undo;
+  hideUndo();
+  // Ascending order puts each one back at the index it had.
+  for (const r of removed) {
+    state.screenshots.splice(Math.min(r.index, state.screenshots.length), 0, r.ss);
+  }
+  persistOrder();
+  renderGallery();
+  // Restored ones come back selected, ready to act on again.
+  select(state.screenshots.indexOf(removed[removed.length - 1].ss));
+  if (removed.length > 1) {
+    state.picked = new Set(removed.map((r) => r.ss));
+    renderSelection();
+  }
+  updateUI();
+  setStatus(`Restored ${removed.length} screenshot${removed.length === 1 ? "" : "s"}`, "ok");
+}
+
+const unsavedCount = () => state.screenshots.filter((s) => !s.saved).length;
+
+// =============================================================================
+// UI
+// =============================================================================
+
+function setStatus(msg, kind = "") {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = "status" + (kind ? " " + kind : "");
+}
+
+function showProgress(pct) {
+  $("progress").hidden = false;
+  $("progress-fill").style.width = pct + "%";
+  $("progress-text").textContent = `Capturing... ${pct}%`;
+}
+
+function hideProgress() { $("progress").hidden = true; }
+
+function applyThumbSize() {
+  $("gallery").style.setProperty("--thumb", state.thumbSize + "px");
+  $("thumb-size").value = String(state.thumbSize);
+  $("thumb-size-value").textContent = state.thumbSize + "px";
+}
+
+function applyZoom() {
+  const panel = document.querySelector(".panel");
+  panel.classList.toggle("zoomed", state.zoom > 0);
+  panel.style.setProperty("--preview-w", DISPLAY_WIDTH * state.zoom + "px");
+  $("zoom").value = String(state.zoom);
+}
+
+// mode: "single" picks just this one, "toggle" (Ctrl-click) adds or removes
+// it, "range" (Shift-click) picks everything from the anchor to it.
+function select(i, mode = "single") {
+  const ss = state.screenshots[i];
+  if (!ss) {
+    state.selected = -1;
+    state.anchor = -1;
+    state.picked = new Set();
+  } else if (mode === "toggle") {
+    if (state.picked.has(ss) && state.picked.size > 1) {
+      state.picked.delete(ss);
+      if (state.screenshots[state.selected] === ss) {
+        state.selected = state.screenshots.findIndex((s) => state.picked.has(s));
+      }
+    } else {
+      state.picked.add(ss);
+      state.selected = i;
+    }
+    state.anchor = i;
+  } else if (mode === "range" && state.anchor >= 0 && state.anchor < state.screenshots.length) {
+    const a = Math.min(state.anchor, i), b = Math.max(state.anchor, i);
+    state.picked = new Set(state.screenshots.slice(a, b + 1));
+    state.selected = i;
+  } else {
+    state.picked = new Set([ss]);
+    state.selected = i;
+    state.anchor = i;
+  }
+  const cur = state.screenshots[state.selected];
+  $("rename").value = cur ? cur.name : "";
+  renderSelection();
+  renderPreview();
+}
+
+function selectAll() {
+  if (!state.screenshots.length) return;
+  state.picked = new Set(state.screenshots);
+  if (state.selected < 0) state.selected = 0;
+  renderSelection();
+  renderPreview();
+}
+
+const pickedList = () => state.screenshots.filter((s) => state.picked.has(s));
+
+// An action on a card applies to the whole selection when that card is part
+// of it, otherwise to the card alone.
+const targetsFor = (ss) => (state.picked.size > 1 && state.picked.has(ss) ? pickedList() : [ss]);
+
+function renderSelection() {
+  state.screenshots.forEach((s, j) => {
+    s.card.classList.toggle("selected", j === state.selected);
+    s.card.classList.toggle("picked", state.picked.has(s));
+    s.card.setAttribute("aria-pressed", String(state.picked.has(s)));
+  });
+  const n = state.picked.size;
+  $("selbar").hidden = n < 2;
+  $("selbar-count").textContent = `${n} selected`;
+}
+
+function makeButton(text, cls, onClick, label) {
+  const b = document.createElement("button");
+  b.textContent = text;
+  if (cls) b.className = cls;
+  if (label) b.setAttribute("aria-label", label);
+  b.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
+  return b;
+}
+
+// HH:MM for today's captures; older ones kept from earlier visits show the date.
+function captureTime(ms) {
+  const d = new Date(ms);
+  const pad = (v) => String(v).padStart(2, "0");
+  return d.toDateString() === new Date().toDateString()
+    ? `${pad(d.getHours())}:${pad(d.getMinutes())}`
+    : `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
+}
+
+function renderCardMeta(ss) {
+  ss.nameEl.textContent = ss.name;
+  ss.card.title = ss.name;
+  const time = captureTime(ss.date);
+  ss.timeEl.textContent = ss.saved ? time : `${time} •`;
+  ss.timeEl.className = ss.saved ? "dim" : "unsaved";
+  ss.timeEl.title = ss.saved ? "" : "Not saved yet";
+}
+
+function buildCard(ss) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  ss.nameEl = document.createElement("span");
+  ss.nameEl.className = "name";
+  ss.timeEl = document.createElement("span");
+  meta.append(ss.nameEl, ss.timeEl);
+
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(
+    makeButton("Save", "", () => saveScreenshot(ss)),
+    makeButton("Copy", "", () => copyToClipboard(ss)),
+    makeButton("×", "del", () => deleteScreenshot(ss), `Delete ${ss.name}`),
+  );
+
+  card.append(ss.canvas, meta, actions);
+  card.draggable = true;
+  card.addEventListener("dragstart", (e) => onCardDragStart(e, ss));
+  card.addEventListener("dragend", onCardDragEnd);
+  card.addEventListener("click", (e) => {
+    const mode = e.shiftKey ? "range" : (e.ctrlKey || e.metaKey) ? "toggle" : "single";
+    select(state.screenshots.indexOf(ss), mode);
+  });
+  card.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    // Right-clicking inside a multi-selection keeps it, so the menu acts on all.
+    if (!state.picked.has(ss)) select(state.screenshots.indexOf(ss));
+    // The keyboard's menu key fires this with no pointer position.
+    if (e.clientX === 0 && e.clientY === 0) {
+      const r = card.getBoundingClientRect();
+      openCardMenu(ss, r.left + 8, r.top + 8);
+    } else {
+      openCardMenu(ss, e.clientX, e.clientY);
+    }
+  });
+  card.addEventListener("keydown", (e) => {
+    if (e.target !== card) return;
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); select(state.screenshots.indexOf(ss)); }
+    else if (e.key === "F2") { e.preventDefault(); select(state.screenshots.indexOf(ss)); startRename(); }
+    else if (e.key === "Delete") { e.preventDefault(); deleteMany(targetsFor(ss)); }
+  });
+  ss.card = card;
+  renderCardMeta(ss);
+  return card;
+}
+
+function renderGallery() {
+  const g = $("gallery");
+  if (!state.screenshots.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = state.connected
+      ? "No screenshots yet - press Take Screenshot"
+      : "No screenshots yet - connect the radio below, then press Take Screenshot";
+    g.replaceChildren(empty);
+    return;
+  }
+  g.replaceChildren(...state.screenshots.map((ss) => ss.card || buildCard(ss)));
+}
+
+// =============================================================================
+// Dragging: out of the page (files, docs, desktop) and within it (reorder)
+// =============================================================================
+
+const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// Drag data can only be filled in during dragstart, synchronously, so the
+// PNGs are made here with toDataURL. Rich editors take the HTML images, the
+// desktop the DownloadURL (Chrome, first one only). Chrome does not carry
+// files added to a page-started drag, so upload boxes such as GitHub's get
+// only the file name; Copy and paste covers those.
+function onCardDragStart(e, ss) {
+  if (!state.picked.has(ss)) select(state.screenshots.indexOf(ss));
+  const list = targetsFor(ss);
+  state.dragging = list;
+  list.forEach((s) => s.card.classList.add("dragging"));
+
+  const dt = e.dataTransfer;
+  dt.effectAllowed = "copyMove";
+  dt.setData(DRAG_TYPE, list.map((s) => s.id).join(","));
+  const pngs = list.map((s) => ({ ss: s, name: `${safeName(s.name)}.png`, url: exportCanvas(s).toDataURL("image/png") }));
+  dt.setData("DownloadURL", `image/png:${pngs[0].name}:${pngs[0].url}`);
+  dt.setData("text/html", pngs.map((p) => `<img src="${p.url}" alt="${escapeHtml(p.ss.name)}">`).join("\n"));
+  dt.setDragImage(ss.canvas, ss.canvas.clientWidth / 2, ss.canvas.clientHeight / 2);
+}
+
+function onCardDragEnd() {
+  (state.dragging || []).forEach((s) => s.card.classList.remove("dragging"));
+  state.dragging = null;
+  showDropMarker(null);
+}
+
+// The card nearest the pointer, and which side of it the drop lands on.
+function dropTarget(e) {
+  let best = null, bestD = Infinity;
+  for (const ss of state.screenshots) {
+    const r = ss.card.getBoundingClientRect();
+    const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right);
+    const dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom);
+    const d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = { ss, after: e.clientX > r.left + r.width / 2 }; }
+  }
+  return best;
+}
+
+function showDropMarker(t) {
+  state.screenshots.forEach((s) => s.card.classList.remove("drop-before", "drop-after"));
+  if (t && !state.dragging.includes(t.ss)) t.ss.card.classList.add(t.after ? "drop-after" : "drop-before");
+}
+
+function moveScreenshots(list, target, after) {
+  if (list.includes(target)) return;
+  const primary = state.screenshots[state.selected];
+  const rest = state.screenshots.filter((s) => !list.includes(s));
+  rest.splice(rest.indexOf(target) + (after ? 1 : 0), 0, ...list);
+  state.screenshots = rest;
+  state.selected = rest.indexOf(primary);
+  state.anchor = state.selected;
+  renderGallery();
+  renderSelection();
+  persistOrder();
+}
+
+function renderPreview() {
+  const ss = state.screenshots[state.selected];
+  $("preview").hidden = !ss;
+  $("preview-empty").hidden = !!ss;
+  $("selected").hidden = !ss;
+  $("selected-actions").hidden = !ss;
+  $("preview-label").textContent = ss ? `PREVIEW · ${ss.name}` : "PREVIEW";
+  if (ss) $("preview").getContext("2d").putImageData(ss.image, 0, 0);
+}
+
+function updateUI() {
+  const hasSerial = "serial" in navigator;
+  const portChosen = Number($("port").value) >= 0;
+  $("port").disabled = !hasSerial || state.connected;
+  $("refresh").disabled = !hasSerial || state.connected;
+  $("baud").disabled = !hasSerial || state.connected;
+  $("connect").textContent = state.connected ? "Disconnect" : "Connect";
+  $("connect").disabled = !hasSerial || (!state.connected && !portChosen);
+  $("capture").disabled = !state.connected || state.capturing;
+  const n = state.screenshots.length;
+  $("save-all").disabled = n === 0;
+  $("clear-all").disabled = n === 0;
+  $("export").disabled = n === 0;
+  const unsaved = unsavedCount();
+  $("count").textContent = `${n} screenshot${n === 1 ? "" : "s"}` + (unsaved ? ` · ${unsaved} unsaved` : "");
+  if (!n) renderGallery();  // keeps the empty-state hint in step with the connection
+}
+
+// Renaming happens in the preview panel's name field.
+function startRename() {
+  const input = $("rename");
+  input.focus();
+  input.select();
+}
+
+let cardMenuTarget = null;
+let cardMenuTargets = [];
+
+function setMenuLabel(action, text) {
+  // First child is the label; a shortcut hint may follow it.
+  $("card-menu").querySelector(`[data-action=${action}]`).firstChild.nodeValue = text;
+}
+
+function openCardMenu(ss, x, y) {
+  const menu = $("card-menu");
+  cardMenuTarget = ss;
+  cardMenuTargets = targetsFor(ss);
+  const n = cardMenuTargets.length;
+  setMenuLabel("save", n > 1 ? `Save ${n}` : "Save");
+  setMenuLabel("rename", "Rename");
+  setMenuLabel("copy", n > 1 ? `Copy ${n} as sheet` : "Copy");
+  setMenuLabel("export", n > 1 ? `Export ${n}…` : "Export all…");
+  setMenuLabel("delete", n > 1 ? `Delete ${n}` : "Delete");
+  menu.querySelector("[data-action=rename]").disabled = n > 1;
+  menu.style.left = x + "px";
+  menu.style.top = y + "px";
+  menu.showPopover();
+  // Keep it on screen near the right and bottom edges.
+  const r = menu.getBoundingClientRect();
+  if (r.right > innerWidth - 4) menu.style.left = Math.max(4, x - r.width) + "px";
+  if (r.bottom > innerHeight - 4) menu.style.top = Math.max(4, y - r.height) + "px";
+  menu.querySelector(".menu-item").focus();
+}
+
+function onCardMenu(action) {
+  $("card-menu").hidePopover();
+  const list = cardMenuTargets.filter((s) => state.screenshots.includes(s));
+  if (!list.length) return;
+  if (action === "save") saveMany(list);
+  else if (action === "copy") copyMany(list);
+  else if (action === "delete") deleteMany(list);
+  else if (action === "export") openExport(list.length > 1 ? list : state.screenshots.slice());
+  else if (action === "rename") startRename();
+}
+
+// =============================================================================
+// Export dialog
+// =============================================================================
+
+let seqList = [];
+let seqTimer = 0;
+
+function openExport(list) {
+  seqList = list.length ? list : state.screenshots.slice();
+  if (!seqList.length) return;
+  $("export-title").textContent = `Export ${seqList.length} screenshot${seqList.length === 1 ? "" : "s"}`;
+  syncExportControls();
+  renderExportPreview();
+  $("export-dlg").showModal();
+}
+
+function syncExportControls() {
+  const q = state.seq;
+  document.querySelectorAll("#export-dlg .seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.format === q.format)));
+  document.querySelectorAll("#export-dlg [data-for]").forEach((el) => { el.hidden = !el.dataset.for.split(" ").includes(q.format); });
+  const cols = $("seq-columns");
+  cols.max = String(Math.max(1, Math.min(10, seqList.length)));
+  cols.value = String(Math.min(q.columns, seqList.length));
+  $("seq-columns-value").textContent = cols.value;
+  $("seq-direction").value = q.direction;
+  $("seq-gap").value = String(q.gap);
+  $("seq-gap-value").textContent = `${q.gap}px`;
+  $("seq-bg").value = q.bg;
+  $("seq-labels").checked = q.labels;
+  $("seq-delay").value = String(q.delay);
+  $("seq-delay-value").textContent = `${(q.delay / 1000).toFixed(1)}s`;
+  $("seq-scale").value = String(q.scale);
+  // Browsers only put PNG on the clipboard.
+  $("seq-copy").hidden = q.format === "gif";
+}
+
+function renderExportPreview() {
+  clearInterval(seqTimer);
+  const q = state.seq;
+  const preview = $("seq-preview");
+  const ctx = preview.getContext("2d");
+
+  if (q.format === "gif") {
+    preview.width = DISPLAY_WIDTH * q.scale;
+    preview.height = DISPLAY_HEIGHT * q.scale;
+    ctx.imageSmoothingEnabled = false;
+    let frame = 0;
+    const draw = () => {
+      ctx.drawImage(seqList[frame % seqList.length].canvas, 0, 0, preview.width, preview.height);
+      frame++;
+    };
+    draw();
+    if (seqList.length > 1) seqTimer = setInterval(draw, q.delay);
+    $("seq-size").textContent = `${preview.width} × ${preview.height} px · ${seqList.length} frame${seqList.length === 1 ? "" : "s"}, looping`;
+    $("seq-save").disabled = false;
+    return;
+  }
+
+  const L = sequenceLayout(seqList.length, q);
+  $("seq-save").disabled = $("seq-copy").disabled = L.tooBig;
+  if (L.tooBig) {
+    preview.width = preview.height = 1;
+    $("seq-size").textContent = `${L.w} × ${L.h} px - too large, lower the scale`;
+    return;
+  }
+  const sheet = renderSheet(seqList, q);
+  preview.width = sheet.width;
+  preview.height = sheet.height;
+  ctx.drawImage(sheet, 0, 0);
+  $("seq-size").textContent = `${L.w} × ${L.h} px`;
+}
+
+function exportFileName(ext) {
+  const kind = state.seq.format === "gif" ? "animation" : state.seq.format === "strip" ? "strip" : "sheet";
+  return `at168shot_${kind}_${fileStamp()}.${ext}`;
+}
+
+async function saveExport() {
+  const q = state.seq;
+  let name;
+  if (q.format === "gif") {
+    setStatus(`Encoding ${seqList.length} frames...`);
+    await sleep(0);  // let the status paint before the encoder blocks
+    name = exportFileName("gif");
+    download(encodeGif(seqList, q.scale, q.delay), name);
+  } else {
+    name = exportFileName("png");
+    download(await canvasBlob(renderSheet(seqList, q)), name);
+  }
+  setStatus(`Saved ${name}`, "ok");
+}
+
+function setSeq(patch) {
+  Object.assign(state.seq, patch);
+  saveSettings();
+  syncExportControls();
+  renderExportPreview();
+}
+
+function renameSelected() {
+  const ss = state.screenshots[state.selected];
+  const name = $("rename").value.trim();
+  if (!ss) return;
+  if (!name) { $("rename").value = ss.name; return; }
+  if (name === ss.name) return;
+  ss.name = name;
+  renderCardMeta(ss);
+  renderPreview();
+  dbPut(ss);
+}
+
+// =============================================================================
+// Wiring
+// =============================================================================
+
+async function init() {
+  const baud = $("baud");
+  BAUD_RATES.forEach((b, i) => baud.add(new Option(String(b), String(i))));
+
+  loadSettings();
+  baud.value = String(state.baudIndex);
+  $("rotation").value = String(state.rotation);
+  $("mirror").checked = state.mirror;
+  $("export-scale").value = String(state.exportScale);
+  $("auto-connect").checked = state.autoConnect;
+  $("save-zip").checked = state.saveAsZip;
+  applyThumbSize();
+  applyZoom();
+
+  if (!("serial" in navigator)) {
+    $("unsupported").hidden = false;
+    $("port").add(new Option("Select...", "-1"));
+  } else {
+    navigator.serial.addEventListener("connect", async () => { await enumeratePorts(); autoConnect(); });
+    navigator.serial.addEventListener("disconnect", (e) => {
+      if (state.port === e.target) serialDisconnect("Device unplugged");
+      enumeratePorts();
+    });
+  }
+
+  $("port").addEventListener("change", updateUI);
+  $("refresh").addEventListener("click", requestPort);
+  baud.addEventListener("change", () => { state.baudIndex = Number(baud.value); saveSettings(); });
+  $("connect").addEventListener("click", () => {
+    if (!state.connected) { serialConnect(); return; }
+    // Disconnecting on purpose means: don't reopen it next time.
+    state.reconnect = false;
+    saveSettings();
+    serialDisconnect();
+  });
+  $("capture").addEventListener("click", startCapture);
+
+  $("rename").addEventListener("change", renameSelected);
+  $("rename").addEventListener("keydown", (e) => { if (e.key === "Enter") renameSelected(); });
+  $("save-btn").addEventListener("click", () => { const ss = state.screenshots[state.selected]; if (ss) saveScreenshot(ss); });
+  $("copy-btn").addEventListener("click", () => { const ss = state.screenshots[state.selected]; if (ss) copyToClipboard(ss); });
+
+  const cardMenu = $("card-menu");
+  cardMenu.addEventListener("click", (e) => {
+    const item = e.target.closest(".menu-item");
+    if (item) onCardMenu(item.dataset.action);
+  });
+  // Arrow keys move between items, wrapping at the ends.
+  cardMenu.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const items = [...cardMenu.querySelectorAll(".menu-item:not(:disabled)")];
+    const i = items.indexOf(document.activeElement);
+    const step = e.key === "ArrowDown" ? 1 : -1;
+    items[(i + step + items.length) % items.length].focus();
+  });
+  // Hand focus back to the card when the menu closes without an action that
+  // moves it elsewhere (rename focuses the name field, delete removes the card).
+  cardMenu.addEventListener("toggle", (e) => {
+    if (e.newState !== "closed" || !cardMenuTarget) return;
+    const card = cardMenuTarget.card;
+    setTimeout(() => {
+      if (document.activeElement === document.body && card.isConnected) card.focus();
+    });
+  });
+
+  // Open the overflow menu just above its button, right edges aligned.
+  $("more-menu").addEventListener("beforetoggle", (e) => {
+    const open = e.newState === "open";
+    $("more").classList.toggle("open", open);
+    $("more").setAttribute("aria-expanded", String(open));
+    if (!open) return;
+    const r = $("more").getBoundingClientRect();
+    const menu = $("more-menu");
+    menu.style.right = Math.max(4, innerWidth - r.right) + "px";
+    menu.style.bottom = (innerHeight - r.top + 4) + "px";
+  });
+
+  $("rotation").addEventListener("change", (e) => { state.rotation = Number(e.target.value); saveSettings(); rebuildAll(); });
+  $("mirror").addEventListener("change", (e) => { state.mirror = e.target.checked; saveSettings(); rebuildAll(); });
+
+  $("thumb-size").addEventListener("input", (e) => { state.thumbSize = Number(e.target.value); applyThumbSize(); });
+  $("thumb-size").addEventListener("change", saveSettings);
+  $("zoom").addEventListener("change", (e) => { state.zoom = Number(e.target.value); applyZoom(); saveSettings(); });
+
+  $("export-scale").addEventListener("change", (e) => { state.exportScale = Number(e.target.value); saveSettings(); });
+  $("auto-connect").addEventListener("change", (e) => { state.autoConnect = e.target.checked; saveSettings(); });
+  $("save-zip").addEventListener("change", (e) => { state.saveAsZip = e.target.checked; saveSettings(); });
+
+  $("save-all").addEventListener("click", saveAll);
+  $("clear-all").addEventListener("click", clearAll);
+  $("toast-undo").addEventListener("click", undoRemove);
+  $("export").addEventListener("click", () => openExport(state.picked.size > 1 ? pickedList() : state.screenshots.slice()));
+
+  $("sel-save").addEventListener("click", () => saveMany(pickedList()));
+  $("sel-copy").addEventListener("click", () => copyMany(pickedList()));
+  $("sel-export").addEventListener("click", () => openExport(pickedList()));
+  $("sel-delete").addEventListener("click", () => deleteMany(pickedList()));
+
+  // Reordering: only drags that started on one of our cards.
+  const gallery = $("gallery");
+  gallery.addEventListener("dragover", (e) => {
+    if (!state.dragging) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    showDropMarker(dropTarget(e));
+  });
+  gallery.addEventListener("dragleave", (e) => {
+    if (state.dragging && !gallery.contains(e.relatedTarget)) showDropMarker(null);
+  });
+  gallery.addEventListener("drop", (e) => {
+    if (!state.dragging) return;
+    e.preventDefault();
+    const t = dropTarget(e);
+    const list = state.dragging;
+    onCardDragEnd();
+    if (t) moveScreenshots(list, t.ss, t.after);
+  });
+
+  // Export dialog
+  document.querySelectorAll("#export-dlg .seg button").forEach((b) =>
+    b.addEventListener("click", () => setSeq({ format: b.dataset.format })));
+  $("seq-columns").addEventListener("input", (e) => setSeq({ columns: Number(e.target.value) }));
+  $("seq-direction").addEventListener("change", (e) => setSeq({ direction: e.target.value }));
+  $("seq-gap").addEventListener("input", (e) => setSeq({ gap: Number(e.target.value) }));
+  $("seq-bg").addEventListener("change", (e) => setSeq({ bg: e.target.value }));
+  $("seq-labels").addEventListener("change", (e) => setSeq({ labels: e.target.checked }));
+  $("seq-delay").addEventListener("input", (e) => setSeq({ delay: Number(e.target.value) }));
+  $("seq-scale").addEventListener("change", (e) => setSeq({ scale: Number(e.target.value) }));
+  $("seq-save").addEventListener("click", saveExport);
+  $("seq-copy").addEventListener("click", () => {
+    copyBlob(canvasBlob(renderSheet(seqList, state.seq)), `the ${state.seq.format === "strip" ? "strip" : "contact sheet"}`);
+  });
+  $("seq-cancel").addEventListener("click", () => $("export-dlg").close());
+  $("export-dlg").addEventListener("close", () => clearInterval(seqTimer));
+
+  document.addEventListener("keydown", (e) => {
+    const typing = e.target.closest("input[type=text], textarea");
+    if (e.target.closest("dialog, [popover]") || typing) {
+      // Dialogs, menus and text fields keep their own keys.
+    } else if (e.key.toLowerCase() === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey && state.undo) {
+      // Ctrl+Z brings back the last delete while its notice is showing.
+      e.preventDefault();
+      undoRemove();
+      return;
+    } else if (e.key.toLowerCase() === "a" && (e.ctrlKey || e.metaKey) && !e.target.closest("select")) {
+      e.preventDefault();
+      selectAll();
+      return;
+    } else if (e.key === "Escape" && state.picked.size > 1 && !e.defaultPrevented) {
+      select(state.selected);  // back to just the one in the preview
+      return;
+    }
+    // Space takes a screenshot, unless focus is somewhere Space already means
+    // something (a text field, a button, a select).
+    if (e.key !== " " || e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.target.closest("input, select, button, textarea, .card, dialog")) return;
+    e.preventDefault();
+    startCapture();
+  });
+
+  // With storage working, captures survive the tab closing; only warn when
+  // they would not.
+  window.addEventListener("beforeunload", (e) => {
+    if (!state.db && unsavedCount()) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  await loadScreenshots();
+  renderGallery();
+  if (state.screenshots.length) select(state.screenshots.length - 1);
+  updateUI();
+
+  if ("serial" in navigator) {
+    await enumeratePorts();
+    autoConnect();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
