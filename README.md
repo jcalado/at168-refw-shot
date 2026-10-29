@@ -27,8 +27,8 @@ This is the AnyTone 168 fork of [RadShot](../../tree/main), which targets the Ra
 Because the frame arrives column by column, the raw image is the transpose of what the
 radio shows and has to be rotated and mirrored to look right. The default (**Rotate 90
 CW** + **Mirror**) is that transpose; if a capture still comes out sideways or mirrored,
-the two controls next to the preview cover every other possibility, and the choice is
-remembered between runs.
+the Rotation and Mirror controls in the **...** menu (bottom right) cover every other
+possibility, and the choice is remembered between runs.
 
 `SCR` is an addition of the screenshot-enabled firmware; it is not part of the stock
 AnyTone program-mode protocol, and no handshake precedes it — entering program mode would
@@ -50,13 +50,29 @@ Screenshot*.
 ## Features
 
 - **Serial Connection** - Connect to your AnyTone 168 radio via serial port at a selectable baud rate
-- **Screenshot Capture** - Capture the radio's LCD display with a single click
-- **Gallery View** - Browse and manage multiple captured screenshots
-- **Save & Export** - Save individual screenshots or all at once as PNG files
-- **Clipboard Support** - Copy screenshots directly to clipboard for quick pasting
+- **Auto-Reconnect** - Reopens the last radio on startup and when it is plugged back in; unplugging is detected
+- **Screenshot Capture** - Capture the radio's LCD display with a click or the Space key
+- **Gallery** - Resizable thumbnails with per-screenshot Save, Copy and Delete, and a resizable preview (fit or 1x-6x)
+- **Kept Between Sessions** - Captures are stored as raw frames and come back after a restart or crash
+- **Multi-Select & Reorder** - Ctrl/Shift-click to act on several screenshots at once; drag to rearrange
+- **Right-Click Menu** - Save, Rename, Copy, Export and Delete on one screenshot or the whole selection
+- **Undo** - Delete and Clear All take effect at once and can be undone for a few seconds (Ctrl+Z)
+- **Save & Export** - PNGs at a chosen scale (1x-6x); Save All as one .zip or separate files
+- **Sequence Export** - Contact sheet, strip, or looping animated GIF of a menu walkthrough, with optional names
+- **Clipboard Support** - Copy a screenshot, or several as one contact sheet
 - **Orientation Controls** - Rotate and mirror captures to match the physical display
-- **Settings Persistence** - Remembers window position, serial port, save directory, and orientation
-- **Cross-Platform** - Runs on Windows, Linux, and macOS
+- **Settings Persistence** - Remembers window position, serial port, save directory, orientation and export options
+- **Cross-Platform** - Runs on Windows, Linux, and macOS, plus a [web version](#web-version) for Chrome and Edge
+
+### Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| Space | Take a screenshot |
+| Ctrl+A / Esc | Select all / back to one |
+| Del | Delete the selection |
+| F2 | Rename |
+| Ctrl+Z | Undo the last delete |
 
 ## Requirements
 
@@ -97,10 +113,24 @@ sudo dnf install mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel
 
 1. Connect your AnyTone 168 radio via USB
 2. Launch AT168Shot
-3. Select the serial port from the dropdown and click **Connect**
-4. Click **Take Screenshot** to capture the radio display
-5. If the image is sideways or mirrored, adjust the orientation controls next to the preview
-6. Use **Save** to export as PNG or **Copy** to copy to clipboard
+3. Select the serial port in the bottom bar and click **Connect** (next time it reconnects on its own)
+4. Click **Take Screenshot** (or press Space) to capture the radio display
+5. If the image is sideways or mirrored, adjust Rotation and Mirror in the **...** menu
+6. Use **Save** to export as PNG or **Copy** to copy to clipboard; **Export...** makes a contact sheet, strip or GIF
+
+Captures are kept in `~/.local/share/at168shot/captures` (Linux),
+`%LOCALAPPDATA%\at168shot\captures` (Windows) or
+`~/Library/Application Support/at168shot/captures` (macOS) until you delete them.
+
+## Web version
+
+[`docs/index.html`](docs/index.html) is the same tool as a single web page using
+[Web Serial](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API), with no
+install. It needs a desktop Chromium-based browser (Chrome, Edge, Opera) and an HTTPS or
+localhost origin, e.g. GitHub Pages serving the `docs/` folder. It has the same features,
+keeps captures in the browser, and saves through downloads. Cards can also be dragged out
+into rich editors (Google Docs and the like); upload boxes such as GitHub's only receive
+the file name, so use Copy and paste there.
 
 ### Linux notes
 
