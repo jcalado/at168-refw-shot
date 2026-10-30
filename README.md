@@ -6,7 +6,7 @@
 
 A cross-platform screenshot capture tool for the AnyTone 168 radio display. Captures the 128x160 colour TFT screen via serial connection.
 
-This is the AnyTone 168 fork of [RadShot](../../tree/main), which targets the Radtel RT-4D.
+This is the AnyTone 168 fork of [RadShot](https://github.com/jcalado/radshot), which targets the Radtel RT-4D.
 
 ![AT168Shot desktop app](docs/screenshot.jpg)
 
