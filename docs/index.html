@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f0f0f">
 <title>AT168Shot</title>
 <meta name="description" content="Screenshot capture tool for the AnyTone 168 radio display, in the browser via Web Serial.">
 <link rel="icon" href="icon.png">
@@ -257,28 +258,133 @@
   dialog .buttons button { min-width: 96px; padding: 6px 14px; }
   dialog .buttons .primary { background: var(--primary); }
 
+  .touch-only { display: none; }
+  button, select, label, .card { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  /* Undo notice clears the status bar, whatever height it wraps to. */
+  .toast { bottom: calc(var(--dock-h, 30px) + 14px); }
+
   @media (max-width: 700px) {
     .toolbar, .statusbar, .gallery { padding-left: 16px; padding-right: 16px; }
     .panel { max-width: none; border-left: 0; border-top: 1px solid var(--border); padding: 12px 16px; }
     .panel.zoomed { flex-basis: 100%; }
     .hint { display: none; }
   }
+
+  /* Fingers, not a mouse: every control at least 40px tall. */
+  @media (pointer: coarse) {
+    button, select, input[type=text] { min-height: 40px; }
+    .card .actions button { min-height: 36px; }
+    .check input { width: 24px; height: 24px; }
+    .check input:checked::after { left: 8px; top: 3px; width: 6px; height: 12px; }
+    input[type=range] { height: 32px; }
+    input[type=range]::-webkit-slider-thumb { width: 18px; height: 28px; }
+    .menu { width: 280px; }
+    .menu-row { padding: 6px 10px; }
+    .menu.ctx { width: 220px; }
+    .menu-item { padding: 10px 14px; }
+    .seg button { min-height: 40px; }
+  }
+  /* A phone on its side: keep the toolbar to one row. */
+  @media (pointer: coarse) and (max-height: 500px) {
+    .toolbar .slider, .hint { display: none; }
+  }
+
+  /* Phones: held in one hand while the other works the radio. The latest
+     capture sits large at the top, older ones in a roll below it, and the
+     connection and the capture button live in a dock under the thumb. */
+  @media (max-width: 640px) {
+    body { font-size: 14px; }
+    .touch-only { display: revert; }
+
+    .toolbar { padding-top: max(8px, env(safe-area-inset-top)); gap: 6px; font-size: 13px; }
+    .toolbar .spacer, .toolbar .slider { display: none; }
+    #clear-all { margin-left: auto; }
+
+    .main { flex-direction: column; flex-wrap: nowrap; }
+    .panel {
+      order: -1; flex: none; border-top: 0; border-bottom: 1px solid var(--border);
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px 8px;
+    }
+    .panel-head { display: none; }
+    .panel #preview, .panel.zoomed #preview {
+      grid-column: 1 / -1; justify-self: center;
+      width: auto; max-width: 100%; height: min(44svh, calc((100vw - 32px) * 1.25));
+    }
+    .preview-empty {
+      grid-column: 1 / -1; justify-self: center;
+      width: auto; max-width: 100%; height: min(32svh, 260px);
+    }
+    .rename label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .rename input { font-size: 16px; }
+    .panel-actions { gap: 6px; }
+    .panel-actions button { flex: 0 0 auto; padding: 0 12px; }
+    .panel-actions .del { color: var(--danger-text); background: var(--danger-bg); }
+    .panel-actions .del:hover:not(:disabled) { background: var(--danger-hover); color: var(--text); }
+
+    .gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .card { padding: 4px; }
+    .card canvas { width: 100%; height: auto; aspect-ratio: 128 / 160; }
+    .card .meta { font-size: 12px; }
+    .card .actions { display: none; }  /* the preview above acts on the tapped card; long-press for the menu */
+
+    .statusbar {
+      position: sticky; bottom: 0; z-index: 5;
+      background: linear-gradient(var(--bar), var(--bar)), var(--bg);
+      display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px;
+      grid-template-areas: "port port baud baud" "status refresh connect more";
+      padding: 10px max(16px, env(safe-area-inset-right)) calc(76px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    }
+    .statusbar .spacer, .statusbar #count, .statusbar .bar-link { display: none; }
+    #status { grid-area: status; align-self: center; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+    #port { grid-area: port; width: auto; }
+    #refresh { grid-area: refresh; }
+    #baud { grid-area: baud; width: 116px; }
+    #connect { grid-area: connect; }
+    #more { grid-area: more; justify-self: end; min-width: 44px; }
+    .connected .statusbar { grid-template-areas: "status status connect more"; }
+    .connected #port, .connected #refresh, .connected #baud { display: none; }
+
+    /* Sits in the space the dock leaves free at its bottom. */
+    .capture-group {
+      position: fixed; z-index: 6;
+      left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right));
+      bottom: calc(12px + env(safe-area-inset-bottom));
+    }
+    #capture { width: 100%; height: 54px; font-size: 16px; }
+    .capture-group .progress {
+      position: absolute; inset: 0; justify-content: center;
+      color: var(--text); pointer-events: none;
+    }
+    .capture-group .progress .track { position: absolute; left: 0; right: 0; bottom: 0; width: auto; height: 4px; }
+    .capture-group .progress .fill { height: 4px; }
+    .capture-group:has(.progress:not([hidden])) #capture { color: transparent; }
+
+    .menu-links { display: flex; gap: 16px; margin: 10px 10px 0; }
+    .menu-links a { color: var(--text-dim); }
+
+    dialog { max-height: calc(100svh - 32px); overflow: auto; }
+    .export-body { padding: 14px 12px 16px; }
+    .export-preview { min-height: 0; flex-basis: 100%; }
+    .export-preview canvas { max-height: 40svh; }
+  }
 </style>
 </head>
 <body>
 <div class="app">
   <div id="unsupported" class="banner" hidden>
-    This browser has no Web Serial support. Use a recent Chrome, Edge or Opera on desktop,
-    or the <a href="https://github.com/jcalado/radshot/releases">desktop app</a>.
+    This browser has no Web Serial or WebUSB support. Use a recent Chrome, Edge or Opera on
+    desktop or Android, or the <a href="https://github.com/jcalado/radshot/releases">desktop app</a>.
   </div>
 
   <!-- Toolbar -->
   <div class="toolbar">
-    <button id="capture" disabled>Take Screenshot</button>
-    <span class="dim hint">or press Space</span>
-    <span id="progress" class="progress" hidden>
-      <span class="track"><span class="fill" id="progress-fill"></span></span>
-      <span id="progress-text">Capturing... 0%</span>
+    <span class="capture-group">
+      <button id="capture" disabled>Take Screenshot</button>
+      <span class="dim hint">or press Space</span>
+      <span id="progress" class="progress" hidden>
+        <span class="track"><span class="fill" id="progress-fill"></span></span>
+        <span id="progress-text">Capturing... 0%</span>
+      </span>
     </span>
     <span class="spacer"></span>
     <label class="slider">Thumbs
@@ -329,6 +435,7 @@
       <div id="selected-actions" class="panel-actions" hidden>
         <button id="save-btn">Save</button>
         <button id="copy-btn">Copy</button>
+        <button id="delete-btn" class="del touch-only" aria-label="Delete">Delete</button>
       </div>
     </div>
   </div>
@@ -342,8 +449,8 @@
     <button id="connect" disabled>Connect</button>
     <span class="spacer"></span>
     <span id="count" class="dim">0 screenshots</span>
-    <a href="https://github.com/jcalado/radshot">source</a>
-    <a href="https://ko-fi.com/jcalado">ko-fi</a>
+    <a class="bar-link" href="https://github.com/jcalado/radshot">source</a>
+    <a class="bar-link" href="https://ko-fi.com/jcalado">ko-fi</a>
     <button id="more" class="more" popovertarget="more-menu" aria-label="More options" title="More options">&#8943;</button>
   </div>
 </div>
@@ -374,6 +481,10 @@
   <div class="menu-title">Connection</div>
   <label class="check menu-row"><input type="checkbox" id="auto-connect">Reconnect to last radio</label>
   <p class="menu-hint">On page load and when it is plugged back in.</p>
+  <p class="menu-links touch-only">
+    <a href="https://github.com/jcalado/radshot">source</a>
+    <a href="https://ko-fi.com/jcalado">ko-fi</a>
+  </p>
 </div>
 
 <div id="card-menu" class="menu ctx" popover role="menu" aria-label="Screenshot actions">
@@ -490,6 +601,9 @@ const UNDO_MS = 6000;
 // =============================================================================
 
 const state = {
+  // navigator.serial, or the WebUSB stand-in from loadSerial(); null when the
+  // browser has neither.
+  serial: null,
   ports: [],
   port: null,
   reader: null,
@@ -969,6 +1083,67 @@ function makeZip(files) {
 // Serial port
 // =============================================================================
 
+// Android has WebUSB but, before Android 17, no serial ports Chrome can list,
+// so there the radio's CDC-ACM interface is driven through Google's WebUSB
+// polyfill. The polyfill's own getPorts() makes new port objects on every call
+// and has no connect/disconnect events, so this keeps one port per device and
+// forwards the USB events, which is what the rest of the page relies on.
+async function loadSerial() {
+  const android = /Android/i.test(navigator.userAgent);
+  if ("serial" in navigator && !android) return navigator.serial;
+  if (!("usb" in navigator)) return navigator.serial || null;
+
+  const { SerialPort } = await import("./web-serial-polyfill.js");
+  const CDC_CONTROL_CLASS = 2;
+  const CDC_DATA_CLASS = 10;
+  // A USB read only completes on a short packet or once its buffer is full.
+  // The 40960-byte frame is a whole number of full packets with nothing after
+  // it, so a read larger than one packet waits for bytes that never come; the
+  // polyfill sizes its reads from bufferSize, so cap that at one packet.
+  const packetSize = (device) => {
+    for (const config of device.configurations)
+      for (const iface of config.interfaces)
+        for (const alt of iface.alternates)
+          if (alt.interfaceClass === CDC_DATA_CLASS)
+            for (const ep of alt.endpoints)
+              if (ep.direction === "in") return ep.packetSize;
+    return 64;
+  };
+  const ports = new Map();  // USBDevice -> SerialPort
+  const portFor = (device) => {
+    if (!ports.has(device)) {
+      const port = new SerialPort(device);
+      const open = port.open.bind(port);
+      port.open = (options) => open({ ...options, bufferSize: packetSize(device) });
+      ports.set(device, port);
+    }
+    return ports.get(device);
+  };
+  const events = new EventTarget();
+  navigator.usb.addEventListener("connect", () => events.dispatchEvent(new Event("connect")));
+  navigator.usb.addEventListener("disconnect", (e) => {
+    const port = ports.get(e.device);
+    ports.delete(e.device);
+    if (port) events.dispatchEvent(Object.assign(new Event("disconnect"), { port }));
+  });
+
+  return {
+    usb: true,
+    addEventListener: events.addEventListener.bind(events),
+    async getPorts() {
+      const result = [];
+      for (const device of await navigator.usb.getDevices()) {
+        try { result.push(portFor(device)); } catch (e) { /* no CDC-ACM interface */ }
+      }
+      return result;
+    },
+    async requestPort() {
+      const device = await navigator.usb.requestDevice({ filters: [{ classCode: CDC_CONTROL_CLASS }] });
+      return portFor(device);
+    },
+  };
+}
+
 function portLabel(port, i) {
   const info = port.getInfo();
   if (info.usbVendorId !== undefined) {
@@ -979,8 +1154,8 @@ function portLabel(port, i) {
 }
 
 async function enumeratePorts(select) {
-  if (!("serial" in navigator)) return;
-  state.ports = await navigator.serial.getPorts();
+  if (!state.serial) return;
+  state.ports = await state.serial.getPorts();
   const sel = $("port");
   sel.replaceChildren(new Option("Select...", "-1"));
   state.ports.forEach((p, i) => sel.add(new Option(portLabel(p, i), String(i))));
@@ -992,7 +1167,7 @@ async function enumeratePorts(select) {
 // The browser only lists ports the user has granted, so Refresh asks for one.
 async function requestPort() {
   try {
-    const port = await navigator.serial.requestPort();
+    const port = await state.serial.requestPort();
     await enumeratePorts(port);
   } catch (e) {
     // NotFoundError: the user dismissed the chooser
@@ -1508,7 +1683,8 @@ function buildCard(ss) {
   );
 
   card.append(ss.canvas, meta, actions);
-  card.draggable = true;
+  // On touch, a long press opens the card menu instead of starting a drag.
+  card.draggable = matchMedia("(pointer: fine)").matches;
   card.addEventListener("dragstart", (e) => onCardDragStart(e, ss));
   card.addEventListener("dragend", onCardDragEnd);
   card.addEventListener("click", (e) => {
@@ -1626,7 +1802,8 @@ function renderPreview() {
 }
 
 function updateUI() {
-  const hasSerial = "serial" in navigator;
+  const hasSerial = !!state.serial;
+  document.body.classList.toggle("connected", state.connected);
   const portChosen = Number($("port").value) >= 0;
   $("port").disabled = !hasSerial || state.connected;
   $("refresh").disabled = !hasSerial || state.connected;
@@ -1819,13 +1996,19 @@ async function init() {
   applyThumbSize();
   applyZoom();
 
-  if (!("serial" in navigator)) {
+  try {
+    state.serial = await loadSerial();
+  } catch (e) {
+    setStatus(`Could not load USB serial support: ${e.message}`, "err");
+  }
+  if (!state.serial) {
     $("unsupported").hidden = false;
     $("port").add(new Option("Select...", "-1"));
   } else {
-    navigator.serial.addEventListener("connect", async () => { await enumeratePorts(); autoConnect(); });
-    navigator.serial.addEventListener("disconnect", (e) => {
-      if (state.port === e.target) serialDisconnect("Device unplugged");
+    state.serial.addEventListener("connect", async () => { await enumeratePorts(); autoConnect(); });
+    state.serial.addEventListener("disconnect", (e) => {
+      // The WebUSB stand-in names the port; real Web Serial fires on it.
+      if (state.port === (e.port || e.target)) serialDisconnect("Device unplugged");
       enumeratePorts();
     });
   }
@@ -1846,6 +2029,12 @@ async function init() {
   $("rename").addEventListener("keydown", (e) => { if (e.key === "Enter") renameSelected(); });
   $("save-btn").addEventListener("click", () => { const ss = state.screenshots[state.selected]; if (ss) saveScreenshot(ss); });
   $("copy-btn").addEventListener("click", () => { const ss = state.screenshots[state.selected]; if (ss) copyToClipboard(ss); });
+  $("delete-btn").addEventListener("click", () => { const ss = state.screenshots[state.selected]; if (ss) deleteScreenshot(ss); });
+
+  const statusbar = document.querySelector(".statusbar");
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty("--dock-h", statusbar.offsetHeight + "px");
+  }).observe(statusbar);
 
   const cardMenu = $("card-menu");
   cardMenu.addEventListener("click", (e) => {
@@ -1977,7 +2166,7 @@ async function init() {
   if (state.screenshots.length) select(state.screenshots.length - 1);
   updateUI();
 
-  if ("serial" in navigator) {
+  if (state.serial) {
     await enumeratePorts();
     autoConnect();
   }

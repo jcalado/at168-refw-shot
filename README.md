@@ -8,6 +8,8 @@ A cross-platform screenshot capture tool for the AnyTone 168 radio display. Capt
 
 This is the AnyTone 168 fork of [RadShot](../../tree/main), which targets the Radtel RT-4D.
 
+![AT168Shot desktop app](docs/screenshot.jpg)
+
 > [!CAUTION]
 > This software will ONLY work correctly on screenshot-enabled firmware builds.
 
@@ -127,10 +129,14 @@ Captures are kept in `~/.local/share/at168shot/captures` (Linux),
 [`docs/index.html`](docs/index.html) is the same tool as a single web page using
 [Web Serial](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API), with no
 install. It needs a desktop Chromium-based browser (Chrome, Edge, Opera) and an HTTPS or
-localhost origin, e.g. GitHub Pages serving the `docs/` folder. It has the same features,
+localhost origin, e.g. GitHub Pages serving the `docs/` folder. On Android, Chrome reaches
+the radio over USB-OTG through [web-serial-polyfill](https://github.com/google/web-serial-polyfill)
+(WebUSB), bundled as `docs/web-serial-polyfill.js`; iOS has neither API. It has the same features,
 keeps captures in the browser, and saves through downloads. Cards can also be dragged out
 into rich editors (Google Docs and the like); upload boxes such as GitHub's only receive
 the file name, so use Copy and paste there.
+
+![AT168Shot web version](docs/screenshot-web.jpg)
 
 ### Linux notes
 
